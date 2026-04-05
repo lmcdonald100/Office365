@@ -265,7 +265,7 @@ function Get-SecureScoreControls {
     # Note: Check if ANY controlStateUpdates have state "completed"; if none, control is open
     $openControls = $controls | Where-Object {
         $_.tier -ne "informational" -and
-        ($_.controlStateUpdates | Where-Object { $_.state -eq "completed" }).Count -eq 0
+        (@($_.controlStateUpdates) | Where-Object { $_.state -eq "completed" }).Count -eq 0
     }
     return [pscustomobject]@{
         All = $controls
@@ -368,13 +368,6 @@ Write-Host "══════════════════════�
 Write-Host ""
 
 
-# Validate required parameter
-if (-not $TenantDomain) { 
-    Write-Err "Parameter -TenantDomain is required"
-    exit 1 
-}
-
-
 # Auto-generate data file path if not specified
 if (-not $DataFile) {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -396,6 +389,22 @@ if (-not [string]::IsNullOrWhiteSpace($outputDirectory) -and -not (Test-Path $ou
 Write-Info "Target Tenant: $TenantDomain"
 Write-Info "Output File: $DataFile"
 Write-Info "Score History Records: $ScoreHistoryCount"
+Write-Host ""
+
+Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "  Recovery Information" -ForegroundColor Cyan
+Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "  A temporary recovery file (*_partial.json) will be maintained" -ForegroundColor Gray
+Write-Host "  and updated after each collection stage:" -ForegroundColor Gray
+Write-Host "    • secure-score" -ForegroundColor Gray
+Write-Host "    • controls" -ForegroundColor Gray
+Write-Host "    • conditional-access" -ForegroundColor Gray
+Write-Host "    • security-defaults" -ForegroundColor Gray
+Write-Host "    • mfa-summary" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  It allows resumption if the script terminates prematurely." -ForegroundColor Gray
+Write-Host "  It is automatically deleted on successful completion." -ForegroundColor Gray
+Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host ""
 
 
@@ -648,24 +657,4 @@ Write-Host "  Use the full file for detailed analysis and integration" -Foregrou
 if ($compactFilePath) {
     Write-Host "  Use the compact file for AI analysis and systems with upload limits" -ForegroundColor Gray
 }
-Write-Host ""
-
-Write-Host ""
-Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  Recovery Information (for future runs)" -ForegroundColor Cyan
-Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  If the script fails during collection, a temporary recovery file" -ForegroundColor Gray
-Write-Host "  is maintained at:" -ForegroundColor Gray
-Write-Host "    • *_partial.json" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  This single recovery point is updated after each collection stage:" -ForegroundColor Gray
-Write-Host "    • secure-score" -ForegroundColor Gray
-Write-Host "    • controls" -ForegroundColor Gray
-Write-Host "    • conditional-access" -ForegroundColor Gray
-Write-Host "    • security-defaults" -ForegroundColor Gray
-Write-Host "    • mfa-summary" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  The file allows resumption if the script terminates prematurely." -ForegroundColor Gray
-Write-Host "  It is automatically deleted on successful completion." -ForegroundColor Gray
-Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host ""

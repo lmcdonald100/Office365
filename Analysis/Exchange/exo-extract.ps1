@@ -53,12 +53,13 @@ param(
 #endregion
 #region Script Defaults & Globals
 Write-Host "Initializing Exchange Online extraction script..." -ForegroundColor Green
-if (-not $global:ErrorCount) { $global:ErrorCount = 0 }
-if (-not $global:WarningCount) { $global:WarningCount = 0 }
-if (-not $global:ErrorList) { $global:ErrorList = @() }
-if (-not $global:WarningList) { $global:WarningList = @() }
-if (-not $global:CategoryTimings) { $global:CategoryTimings = @{} }
-if (-not $global:ExportMetadata) { $global:ExportMetadata = @{} }
+$ScriptVersion = $ScriptVersion
+$script:ErrorCount = 0
+$script:WarningCount = 0
+$script:ErrorList = @()
+$script:WarningList = @()
+$script:CategoryTimings = @{}
+$script:ExportMetadata = @{}
 #endregion
 #region Helper Functions
 function Invoke-WithRetry {
@@ -123,8 +124,8 @@ function Write-Warn {
     #>
     param([Parameter(Mandatory)][string]$Message)
     Write-Warning $Message
-    $global:WarningCount++
-    $global:WarningList += $Message
+    $script:WarningCount++
+    $script:WarningList += $Message
     Write-Debug "[Write-Warn] $Message"
 }
 
@@ -148,9 +149,9 @@ function Write-Err {
         The error message to display.
     #>
     param([Parameter(Mandatory)][string]$Message)
-    Write-Error $Message
-    $global:ErrorCount++
-    $global:ErrorList += $Message
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
+    $script:ErrorCount++
+    $script:ErrorList += $Message
     Write-Debug "[Write-Err] $Message"
 }
 
@@ -216,7 +217,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ($OutputFolder) {
     $OutputDir = $OutputFolder
 } else {
-    $OutputDir = Split-Path -Parent $scriptDir
+    $OutputDir = $scriptDir
 }
 if (-not (Test-Path $OutputDir)) {
     Write-Info "Creating output directory: $OutputDir"
@@ -274,7 +275,7 @@ function Save-Json {
         $size = (Get-Item $jsonFilePath).Length
         $sizeStr = if ($size -gt 1MB) { "{0:N2} MB" -f ($size/1MB) } elseif ($size -gt 1KB) { "{0:N1} KB" -f ($size/1KB) } else { "$size bytes" }
         Write-Info "Saved: $jsonFilePath ($sizeStr)"
-        if ($Category) { $global:ExportMetadata[$Category] = @{ File = $jsonFilePath; Size = $sizeStr } }
+        if ($Category) { $script:ExportMetadata[$Category] = @{ File = $jsonFilePath; Size = $sizeStr } }
     } catch {
         Write-Err "Failed to save ${jsonFilePath}: $($_.Exception.Message)"
     }
@@ -354,9 +355,8 @@ function Connect-ExchangeOnlineWithRetry {
             }
             
             Connect-ExchangeOnline @connectParams
-            
+
             # Verify connection
-            Start-Sleep -Seconds 2
             if (Test-ExchangeOnlineConnection) {
                 Write-Info "Successfully connected to Exchange Online."
                 return $true
@@ -472,7 +472,7 @@ for ($i = 0; $i -lt $total; $i++) {
         Write-Warn "$($cat.Name): Collected $count items in $($duration.TotalSeconds) seconds. N+1 query pattern is inherently slow at scale. For better performance on PowerShell 7+, consider using ForEach-Object -Parallel."
     }
     $results[$cat.Name] = $data
-    $global:CategoryTimings[$cat.Name] = Format-TimeSpan $duration
+    $script:CategoryTimings[$cat.Name] = Format-TimeSpan $duration
     $categoryStats[$cat.Name] = @{ Count = $count; Duration = $duration.TotalSeconds; Success = $success; Critical = $result.Critical }
     if ($success -and ($count -gt 0 -or $cat.Name -ne 'Transport rules')) {
         Write-Host ("  ✓ $($cat.Name): {0} item(s) collected in {1}" -f $count, (Format-TimeSpan $duration)) -ForegroundColor Green
@@ -493,7 +493,6 @@ Write-Host "================================================================" -F
 Write-Host "  ✓ ALL CONFIGURATION CATEGORIES COLLECTED" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
-#endregion
 #endregion
 
 
@@ -548,13 +547,13 @@ $summary = [pscustomobject]@{
     ATPPolicies = $atpPolicies # All properties, all items
     DistributionGroups = $results['Distribution groups'] # All properties, all items
     UnifiedGroups = $results['Unified groups'] # All properties, all items
-    ErrorCount = $global:ErrorCount
-    WarningCount = $global:WarningCount
-    Timings = $global:CategoryTimings
-    ExportMetadata = $global:ExportMetadata
+    ErrorCount = $script:ErrorCount
+    WarningCount = $script:WarningCount
+    Timings = $script:CategoryTimings
+    ExportMetadata = $script:ExportMetadata
     CollectionDate = (Get-Date).ToString('o')
-    CollectedBy = $TenantDomain
-    ScriptVersion = "1.1"
+    CollectedBy = $env:USERNAME
+    ScriptVersion = $ScriptVersion
 }
 $summaryFile = Join-Path $OutputDir ("exo_summary_{0}_{1}.json" -f $sanitizedDomain, $timestamp)
 Save-Json -Data $summary -FilePath $summaryFile -Category "Summary" -JsonDepth $JsonDepth
@@ -567,9 +566,9 @@ $compactSummary = [pscustomobject]@{
     Metadata = [pscustomobject]@{
         TenantDomain = $TenantDomain
         CollectionDate = (Get-Date).ToString('o')
-        ScriptVersion = "1.2"
-        ErrorCount = $global:ErrorCount
-        WarningCount = $global:WarningCount
+        ScriptVersion = $ScriptVersion
+        ErrorCount = $script:ErrorCount
+        WarningCount = $script:WarningCount
         TotalCategoriesCollected = $total
         TotalExecutionTime = Format-TimeSpan $swTotal.Elapsed
     }
@@ -608,7 +607,7 @@ $compactSummary = [pscustomobject]@{
         TotalCount = (Get-SafeCount $results['Unified groups'])
         Sample = ($results['Unified groups'] | Select-Object -First 75 @{Name='GroupName';Expression={$_.Group.DisplayName}},@{Name='MemberCount';Expression={($_.Members | Measure-Object).Count}},@{Name='Members';Expression={($_.Members | Select-Object -First 10 DisplayName,PrimarySmtpAddress)}})
     }
-    Timings = $global:CategoryTimings
+    Timings = $script:CategoryTimings
 }
 
 $compactFile = Join-Path $OutputDir ("exo_summary_{0}_{1}_compact.json" -f $sanitizedDomain, $timestamp)
@@ -620,10 +619,10 @@ if ($Compact) {
     $ultraCompactSummary = [pscustomobject]@{
         TenantDomain = $TenantDomain
         CollectionDate = (Get-Date).ToString('o')
-        ScriptVersion = "1.2"
+        ScriptVersion = $ScriptVersion
         Status = @{
-            ErrorCount = $global:ErrorCount
-            WarningCount = $global:WarningCount
+            ErrorCount = $script:ErrorCount
+            WarningCount = $script:WarningCount
             SuccessfulCategories = @($categoryStats.Keys | Where-Object { $categoryStats[$_].Success }).Count
         }
         QuickStats = @{
@@ -665,21 +664,21 @@ Write-Host "  Output Directory: $OutputDir" -ForegroundColor Cyan
 Write-Host "  Collected:       $((Get-Date).ToString('o'))" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "GENERATED FILES:" -ForegroundColor Yellow
-if ($global:ExportMetadata["Summary"]) {
-    $file = Split-Path -Leaf $global:ExportMetadata["Summary"].File
+if ($script:ExportMetadata["Summary"]) {
+    $file = Split-Path -Leaf $script:ExportMetadata["Summary"].File
     Write-Host "  ✓ Full Summary:          $file" -ForegroundColor Green
     Write-Host "    (Complete detailed data - use for full analysis/archiving)" -ForegroundColor DarkGray
 }
 Write-Host ""
-if ($global:ExportMetadata["CompactSummary"]) {
-    $file = Split-Path -Leaf $global:ExportMetadata["CompactSummary"].File
+if ($script:ExportMetadata["CompactSummary"]) {
+    $file = Split-Path -Leaf $script:ExportMetadata["CompactSummary"].File
     Write-Host "  ✓ Compact Summary:       $file" -ForegroundColor Green
     Write-Host "    (AI-optimized for smaller models - ~256KB, richer context)" -ForegroundColor DarkGray
 }
 if ($Compact) {
-    if ($global:ExportMetadata["UltraCompactSummary"]) {
+    if ($script:ExportMetadata["UltraCompactSummary"]) {
         Write-Host ""
-        $file = Split-Path -Leaf $global:ExportMetadata["UltraCompactSummary"].File
+        $file = Split-Path -Leaf $script:ExportMetadata["UltraCompactSummary"].File
         Write-Host "  ✓ Ultra-Compact:         $file" -ForegroundColor Green
         Write-Host "    (Single-page summary - ~5KB, instant analysis)" -ForegroundColor DarkGray
     }
@@ -688,7 +687,7 @@ Write-Host ""
 Write-Stat "  Total Categories Collected: $total"
 
 # ERRORS & WARNINGS FILTERING (define before use)
-$uniqueErrors = $global:ErrorList | Select-Object -Unique
+$uniqueErrors = $script:ErrorList | Select-Object -Unique
 $actionableErrors = $uniqueErrors | Where-Object {
     $_ -notmatch 'CRITICAL: .+ collection failed after \d+ attempts[:\.]' -and
     $_ -notmatch 'NON-CRITICAL: .+ collection failed after \d+ attempts[:\.]' -and
@@ -698,7 +697,7 @@ $genericErrors = $uniqueErrors | Where-Object {
     $_ -match 'CRITICAL: .+ collection failed after \d+ attempts[:\.]' -or
     $_ -match 'NON-CRITICAL: .+ collection failed after \d+ attempts[:\.]'
 }
-$uniqueWarnings = $global:WarningList | Select-Object -Unique
+$uniqueWarnings = $script:WarningList | Select-Object -Unique
 $actionableWarnings = $uniqueWarnings | Where-Object {
     $_ -notmatch 'NON-CRITICAL: .+ collection failed after \d+ attempts[:\.]' -and
     $_ -ne 'Warnings encountered during extraction:'
@@ -718,7 +717,7 @@ if ($actionableErrors.Count -gt 0) {
 } else {
     Write-Host "  (No actionable errors. All failures were generic collection errors.)" -ForegroundColor DarkGray
 }
-Write-Debug "[ErrorList] Count: $($global:ErrorList.Count), Unique: $($uniqueErrors.Count), Actionable: $($actionableErrors.Count), Generic: $($genericErrors.Count)"
+Write-Debug "[ErrorList] Count: $($script:ErrorList.Count), Unique: $($uniqueErrors.Count), Actionable: $($actionableErrors.Count), Generic: $($genericErrors.Count)"
 Write-Debug "[ErrorList] Contents: $($actionableErrors -join '; ')"
 Write-Debug "[GenericErrorList] Contents: $($genericErrors -join '; ')"
 
@@ -733,7 +732,7 @@ if ($actionableWarnings.Count -gt 0) {
 } else {
     Write-Host "  (No actionable warnings. All failures were generic collection warnings.)" -ForegroundColor DarkGray
 }
-Write-Debug "[WarningList] Count: $($global:WarningList.Count), Unique: $($uniqueWarnings.Count), Actionable: $($actionableWarnings.Count), Generic: $($genericWarnings.Count)"
+Write-Debug "[WarningList] Count: $($script:WarningList.Count), Unique: $($uniqueWarnings.Count), Actionable: $($actionableWarnings.Count), Generic: $($genericWarnings.Count)"
 Write-Debug "[WarningList] Contents: $($actionableWarnings -join '; ')"
 Write-Debug "[GenericWarningList] Contents: $($genericWarnings -join '; ')"
 
